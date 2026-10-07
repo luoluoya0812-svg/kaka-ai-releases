@@ -1,0 +1,3 @@
+a6235a1135d9bb81dfb20798f6541d142015df3213bfdef775bc659cfed24659  KakaAI-Setup-0.4.1-x64.exe
+fa74a23ab1557e0f9fee1cd18458805f77233b73da5edcc96ccc37d3deaedc2f  KakaAI-Setup-0.4.1-x64.exe.blockmap
+4e54f54ab61cecde0ff9d29598f4d099d0acd338eb882138ee362a41fd8ef8e2  latest.yml

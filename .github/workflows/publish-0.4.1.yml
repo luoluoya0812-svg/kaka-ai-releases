@@ -1,0 +1,77 @@
+name: Publish KakaAI 0.4.1
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/publish-0.4.1.yml']
+permissions:
+  contents: read
+concurrency:
+  group: publish-kakaai-0.4.1
+  cancel-in-progress: false
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+      TARGET_SHA: ${{ github.sha }}
+    steps:
+      - name: Reconstruct and verify locally built installer
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p release-files transport
+          base="https://raw.githubusercontent.com/$GH_REPO/$TARGET_SHA/release-inputs/0.4.1"
+          for name in delta.part0 delta.part1; do
+            curl -fsSL --retry 2 --max-time 120 "$base/$name" -o "transport/$name"
+          done
+          cat transport/delta.part0 transport/delta.part1 > transport/installer.bsdiff
+          echo 'fa7118cb560c2f11d17ba0468cf09500092ede66d77ad8a06e73f2e0d54a2977  transport/installer.bsdiff' | sha256sum -c -
+          gh release download v0.4.0 --pattern KakaAI-Setup-0.4.0-x64.exe --dir transport
+          echo '49de4eda9b6c9bf8eb53c14ac47b96fa63ef2fe6b4f6ddbb88fb7c036a079e8c  transport/KakaAI-Setup-0.4.0-x64.exe' | sha256sum -c -
+          python3 -m venv transport/venv
+          transport/venv/bin/pip install --only-binary=:all: bsdiff4==1.2.6
+          transport/venv/bin/python -c "import bsdiff4; bsdiff4.file_patch('transport/KakaAI-Setup-0.4.0-x64.exe','release-files/KakaAI-Setup-0.4.1-x64.exe','transport/installer.bsdiff')"
+          for name in KakaAI-Setup-0.4.1-x64.exe.blockmap latest.yml SHA256SUMS.txt; do
+            curl -fsSL --retry 2 --max-time 120 "$base/$name" -o "release-files/$name"
+          done
+          cd release-files
+          sha256sum -c SHA256SUMS.txt
+          python3 - <<'PY'
+          from pathlib import Path
+          import hashlib, base64
+          data=Path('KakaAI-Setup-0.4.1-x64.exe').read_bytes()
+          manifest=Path('latest.yml').read_text()
+          assert len(data)==76339971
+          assert 'version: 0.4.1' in manifest
+          assert base64.b64encode(hashlib.sha512(data).digest()).decode() in manifest
+          PY
+      - name: Publish verified release
+        shell: bash
+        run: |
+          set -euo pipefail
+          cat > release-notes.md <<'NOTES'
+          卡卡智作 0.4.1 · Windows x64 安装版
+
+          - 安装时可选择磁盘和安装文件夹。
+          - 新增“创建桌面快捷方式”勾选项，默认勾选。
+          - 保留已有用户数据，软件更新流程保持兼容。
+
+          下载并运行 KakaAI-Setup-0.4.1-x64.exe。
+          .blockmap 和 latest.yml 为自动更新配套文件，无需手动打开。
+          发布包已与本地构建结果核对 SHA-256 / SHA-512；校验值见 SHA256SUMS.txt。
+          NOTES
+          if gh release view v0.4.1 --json isDraft > existing-release.json 2>/dev/null; then
+            if ! jq -e '.isDraft == true' existing-release.json > /dev/null; then
+              echo 'Already published; leaving existing release unchanged.'
+              exit 0
+            fi
+          else
+            gh release create v0.4.1 --target "$TARGET_SHA" --title "卡卡智作 0.4.1" --notes-file release-notes.md --draft
+          fi
+          gh release upload v0.4.1 release-files/KakaAI-Setup-0.4.1-x64.exe release-files/KakaAI-Setup-0.4.1-x64.exe.blockmap release-files/latest.yml release-files/SHA256SUMS.txt --clobber
+          gh release edit v0.4.1 --draft=false --latest --title "卡卡智作 0.4.1" --notes-file release-notes.md
