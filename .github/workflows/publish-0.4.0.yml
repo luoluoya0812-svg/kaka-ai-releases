@@ -1,0 +1,58 @@
+name: Publish KakaAI 0.4.0
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/publish-0.4.0.yml']
+permissions:
+  contents: read
+concurrency:
+  group: publish-kakaai-0.4.0
+  cancel-in-progress: false
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    permissions:
+      contents: write
+    steps:
+      - name: Download and verify existing release files
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p release-files
+          cd release-files
+          for name in KakaAI-Setup-0.4.0-x64.exe KakaAI-Setup-0.4.0-x64.exe.blockmap latest.yml; do
+            curl --fail --location --retry 2 --connect-timeout 30 --max-time 900 --output "$name" "https://updates.kakadians.com/$name"
+          done
+          cat > SHA256SUMS.txt <<'CHECKSUMS'
+          49de4eda9b6c9bf8eb53c14ac47b96fa63ef2fe6b4f6ddbb88fb7c036a079e8c  KakaAI-Setup-0.4.0-x64.exe
+          24f75a8e3bf1980477eab50a9671bafb357c267f0028bf7fc018cb8eb341e07d  KakaAI-Setup-0.4.0-x64.exe.blockmap
+          82cb1b839cc06fecb13803a1d86cdb4e06cced89b73a18aac03353556a56a26c  latest.yml
+          CHECKSUMS
+          sha256sum --check SHA256SUMS.txt
+      - name: Publish verified files
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          TARGET_SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          cat > release-notes.md <<'NOTES'
+          卡卡智作 0.4.0 · Windows x64 安装版
+
+          下载并运行 KakaAI-Setup-0.4.0-x64.exe。
+          .blockmap 和 latest.yml 为软件更新配套文件，无需手动打开。
+          本次文件与原下载站 0.4.0 发布包一致，已核对 SHA-256；校验值见 SHA256SUMS.txt。
+          NOTES
+          if gh release view v0.4.0 --json isDraft > existing-release.json 2>/dev/null; then
+            if ! jq -e '.isDraft == true' existing-release.json > /dev/null; then
+              echo 'Version v0.4.0 is already published; leaving it unchanged.'
+              exit 0
+            fi
+          else
+            gh release create v0.4.0 --target "$TARGET_SHA" --title "卡卡智作 0.4.0" --notes-file release-notes.md --draft
+          fi
+          gh release upload v0.4.0 release-files/KakaAI-Setup-0.4.0-x64.exe release-files/KakaAI-Setup-0.4.0-x64.exe.blockmap release-files/latest.yml release-files/SHA256SUMS.txt --clobber
+          gh release edit v0.4.0 --draft=false --latest --title "卡卡智作 0.4.0" --notes-file release-notes.md
